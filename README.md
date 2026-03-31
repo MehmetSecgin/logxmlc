@@ -19,12 +19,10 @@ Application logs often wrap XML in timestamps, metadata, escaped JSON, or plain 
 
 ## Install
 
-After publishing this repo to GitHub, replace `YOUR_GITHUB_USERNAME` below with your account name. If you use a different repo name, replace `logxmlc` too.
-
 One-line install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/logxmlc/main/install.sh | LOGXMLC_GITHUB_REPO=YOUR_GITHUB_USERNAME/logxmlc bash
+curl -fsSL https://raw.githubusercontent.com/MehmetSecgin/logxmlc/main/install.sh | LOGXMLC_GITHUB_REPO=MehmetSecgin/logxmlc bash
 ```
 
 Install after cloning:
