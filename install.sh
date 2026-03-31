@@ -2,7 +2,7 @@
 set -euo pipefail
 
 TARGET_DIR="${1:-${LOGXMLC_INSTALL_DIR:-$HOME/.local/bin}}"
-GITHUB_REPO="${LOGXMLC_GITHUB_REPO:-}"
+GITHUB_REPO="${LOGXMLC_GITHUB_REPO:-MehmetSecgin/logxmlc}"
 GITHUB_REF="${LOGXMLC_GITHUB_REF:-main}"
 SOURCE_URL="${LOGXMLC_SOURCE_URL:-}"
 
@@ -48,7 +48,7 @@ elif [[ -n "$SOURCE_URL" ]]; then
   install -m 755 "$tmpfile" "$TARGET_DIR/logxmlc"
 else
   echo "Could not find a local logxmlc file to install." >&2
-  echo "If running via curl, set LOGXMLC_GITHUB_REPO or LOGXMLC_SOURCE_URL." >&2
+  echo "If running from a fork, set LOGXMLC_GITHUB_REPO or LOGXMLC_SOURCE_URL." >&2
   exit 1
 fi
 

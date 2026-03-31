@@ -22,7 +22,7 @@ Application logs often wrap XML in timestamps, metadata, escaped JSON, or plain 
 One-line install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MehmetSecgin/logxmlc/main/install.sh | LOGXMLC_GITHUB_REPO=MehmetSecgin/logxmlc bash
+curl -fsSL https://raw.githubusercontent.com/MehmetSecgin/logxmlc/main/install.sh | bash
 ```
 
 Install after cloning:
