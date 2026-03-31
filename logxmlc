@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""Extract XML from a log blob on stdin and pretty-print it."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from xml.dom import minidom
+
+VERSION = "1.0.0"
+
+CLIPBOARD_READERS = (
+    ["pbpaste"],
+    ["wl-paste", "-n"],
+    ["xclip", "-selection", "clipboard", "-o"],
+    ["xsel", "--clipboard", "--output"],
+)
+
+CLIPBOARD_WRITERS = (
+    ["pbcopy"],
+    ["wl-copy"],
+    ["xclip", "-selection", "clipboard"],
+    ["xsel", "--clipboard", "--input"],
+)
+
+
+def _prog_name() -> str:
+    return Path(sys.argv[0]).name or "logxmlc"
+
+
+def _find_start(s: str, pos: int) -> int:
+    idx = s.find("<?xml", pos)
+    if idx != -1:
+        return idx
+    # Fallback: look for a plausible element start
+    while True:
+        idx = s.find("<", pos)
+        if idx == -1:
+            return -1
+        if idx + 1 < len(s) and (s[idx + 1].isalpha() or s[idx + 1] in "!?_"):
+            return idx
+        pos = idx + 1
+
+
+def _extract_xml_segment(s: str, start: int) -> str | None:
+    i = start
+    stack: list[str] = []
+    seen_root = False
+    while True:
+        lt = s.find("<", i)
+        if lt == -1:
+            return None
+
+        if s.startswith("<?", lt):
+            end = s.find("?>", lt + 2)
+            if end == -1:
+                return None
+            i = end + 2
+            continue
+        if s.startswith("<!--", lt):
+            end = s.find("-->", lt + 4)
+            if end == -1:
+                return None
+            i = end + 3
+            continue
+        if s.startswith("<![CDATA[", lt):
+            end = s.find("]]>", lt + 9)
+            if end == -1:
+                return None
+            i = end + 3
+            continue
+        if s.startswith("<!", lt):
+            end = s.find(">", lt + 2)
+            if end == -1:
+                return None
+            i = end + 1
+            continue
+
+        gt = s.find(">", lt + 1)
+        if gt == -1:
+            return None
+
+        tag_content = s[lt + 1 : gt].strip()
+        if not tag_content:
+            i = gt + 1
+            continue
+
+        closing = tag_content.startswith("/")
+        self_closing = tag_content.endswith("/")
+
+        if closing:
+            name = tag_content[1:].strip().split()[0]
+            if not stack:
+                return None
+            if stack[-1] == name:
+                stack.pop()
+            else:
+                # Best-effort recovery: pop until we find a matching tag.
+                try:
+                    idx = len(stack) - 1 - stack[::-1].index(name)
+                except ValueError:
+                    return None
+                stack = stack[:idx]
+                if stack and stack[-1] == name:
+                    stack.pop()
+        else:
+            name = tag_content
+            if self_closing:
+                name = name[:-1].strip()
+            name = name.split()[0]
+            if not self_closing:
+                stack.append(name)
+                seen_root = True
+
+        if seen_root and not stack:
+            return s[start : gt + 1]
+
+        i = gt + 1
+
+
+def _pretty_xml(xml_str: str, keep_decl: bool) -> str:
+    dom = minidom.parseString(xml_str)
+    pretty = dom.toprettyxml(indent="  ")
+    pretty = "\n".join(line for line in pretty.splitlines() if line.strip())
+    if not keep_decl:
+        pretty = re.sub(r"^<\?xml[^>]*>\n?", "", pretty)
+    return pretty
+
+
+def _extract_from_message(message: str, all_matches: bool) -> list[str]:
+    results: list[str] = []
+    pos = 0
+    while True:
+        start = _find_start(message, pos)
+        if start == -1:
+            break
+        segment = _extract_xml_segment(message, start)
+        if not segment:
+            tail = message[start:]
+            last_gt = tail.rfind(">")
+            segment = tail[: last_gt + 1] if last_gt != -1 else None
+        if segment:
+            results.append(segment)
+            pos = start + len(segment)
+        else:
+            pos = start + 1
+        if not all_matches and results:
+            break
+    return results
+
+
+def _extract_xmls(text: str, all_matches: bool) -> list[str]:
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict) and "message" in obj:
+            return _extract_from_message(str(obj["message"]), all_matches)
+    except Exception:
+        pass
+
+    return _extract_from_message(text, all_matches)
+
+
+def _resolve_clipboard_command(commands: tuple[list[str], ...]) -> list[str] | None:
+    for command in commands:
+        if shutil.which(command[0]):
+            return command
+    return None
+
+
+def _read_clipboard() -> str:
+    command = _resolve_clipboard_command(CLIPBOARD_READERS)
+    if not command:
+        raise RuntimeError(
+            "No clipboard reader found. Install pbpaste, wl-clipboard, xclip, or xsel."
+        )
+    return subprocess.check_output(command, text=True)
+
+
+def _write_clipboard(text: str) -> None:
+    command = _resolve_clipboard_command(CLIPBOARD_WRITERS)
+    if not command:
+        raise RuntimeError(
+            "No clipboard writer found. Install pbcopy, wl-clipboard, xclip, or xsel."
+        )
+    subprocess.run(command, input=text, text=True, check=True)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog=_prog_name(),
+        description="Extract XML from logs (arg or stdin) and pretty-print it.",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="extract all XML documents found (default: first only)",
+    )
+    parser.add_argument(
+        "--raw",
+        action="store_true",
+        help="output raw XML without pretty-printing",
+    )
+    parser.add_argument(
+        "--no-decl",
+        action="store_true",
+        help="omit XML declaration in pretty output",
+    )
+    parser.add_argument(
+        "--clipboard",
+        action="store_true",
+        help="read input from the clipboard",
+    )
+    parser.add_argument(
+        "--copy",
+        action="store_true",
+        help="copy output to the clipboard",
+    )
+    parser.add_argument(
+        "--copy-only",
+        action="store_true",
+        help="copy output to the clipboard and do not print",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {VERSION}",
+    )
+    parser.add_argument(
+        "log",
+        nargs="*",
+        help="log text (if omitted, read from stdin)",
+    )
+    args = parser.parse_args()
+
+    try:
+        if args.clipboard:
+            data = _read_clipboard()
+        elif args.log:
+            data = " ".join(args.log)
+        else:
+            if sys.stdin.isatty():
+                sys.stderr.write(
+                    f"Paste log into {_prog_name()}, then press Ctrl-D to finish.\n"
+                )
+            data = sys.stdin.read()
+    except Exception as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+
+    if not data.strip():
+        sys.stderr.write("No input received.\n")
+        return 1
+
+    xmls = _extract_xmls(data, args.all)
+    if not xmls:
+        sys.stderr.write("No XML found in input.\n")
+        return 1
+
+    outputs: list[str] = []
+    for xml_str in xmls:
+        if args.raw:
+            outputs.append(xml_str)
+        else:
+            outputs.append(_pretty_xml(xml_str, keep_decl=not args.no_decl))
+
+    out = "\n\n".join(outputs) + "\n"
+
+    if args.copy or args.copy_only:
+        try:
+            _write_clipboard(out)
+        except Exception as exc:
+            sys.stderr.write(f"{exc}\n")
+            return 1
+
+    if not args.copy_only:
+        sys.stdout.write(out)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
