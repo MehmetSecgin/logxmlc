@@ -2,7 +2,7 @@
 
 `logxmlc` extracts XML from noisy logs and pretty-prints it.
 
-It is a single-file Python CLI with no third-party dependencies. Feed it a log line, a JSON log blob, stdin, or your clipboard, and it will pull out the XML payload for inspection.
+It is a single-file Python CLI with no third-party dependencies. Feed it a log line, a file, a JSON log blob, stdin, or your clipboard, and it will pull out the XML payload for inspection.
 
 ## Why it exists
 
@@ -15,6 +15,7 @@ Application logs often wrap XML in timestamps, metadata, escaped JSON, or plain 
 - Pretty-prints XML for easier reading
 - Can output raw XML with `--raw`
 - Can read from and copy back to the clipboard
+- Accepts file path argument(s), literal text, stdin, or the clipboard as input
 - Works with plain text logs and JSON logs that contain a `message` field
 
 ## Install
@@ -56,6 +57,13 @@ Pass a log line directly:
 
 ```bash
 logxmlc 'INFO <?xml version="1.0"?><root><a>1</a></root>'
+```
+
+Read one or more files (existing paths are read as files; anything else is treated as literal text):
+
+```bash
+logxmlc app.log
+logxmlc service-a.log service-b.log
 ```
 
 Read from the clipboard:
